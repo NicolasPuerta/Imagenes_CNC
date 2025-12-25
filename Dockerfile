@@ -1,0 +1,21 @@
+# Usa una imagen ligera de Python
+FROM python:3.10-slim
+
+# Establece el directorio de trabajo
+WORKDIR /app
+
+# Copia los archivos necesarios
+COPY requirements.txt .
+
+# Instala las dependencias
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia el resto del código
+COPY . .
+
+# Exponer el puerto (Render usa variables de entorno, pero esto es buena práctica)
+EXPOSE 5000
+
+# Comando para correr la app usando Gunicorn
+# "app:app" significa: del archivo app.py, busca el objeto 'app'
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "120", "app:app"]

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Editor CNC / Láser</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+</head>
+<body>
+
+<div class="app">
+
+    <!-- CONTROLES -->
+    <div class="controls">
+        <h2>Herramientas CNC</h2>
+
+        <div class="control-group">
+            <label>Imagen</label>
+            <input type="file" id="imageInput" accept="image/*">
+        </div>
+
+        <div class="control-group inline-reset">
+            <label>Brillo: <strong><span id="brightnessValue">0%</span></strong></label>
+            <div class="input-row">
+                <input type="range" id="brightness" min="-100" max="100" value="0">
+                <button type="button" class="reset-btn" data-target="brightness">↺</button>
+            </div>
+        </div>
+
+        <div class="control-group inline-reset">
+            <label>Contraste: <strong><span id="contrastValue">100%</span></strong></label>
+            <div class="input-row">
+                <input type="range" id="contrast" min="0.5" max="3" step="0.1" value="1">
+                <button type="button" class="reset-btn" data-target="contrast">↺</button>
+            </div>
+        </div>
+
+        <div class="control-group inline-reset">
+            <label>
+                <input type="checkbox" id="invert">
+                Invertir colores
+            </label>
+        </div>
+
+        <hr>
+
+        <div class="control-group inline-reset">
+            <label>
+                <input type="checkbox" id="dither">
+                Puntillismo (Jarvis)
+            </label>
+        </div>
+
+        <div class="control-group inline-reset">
+            <label>Grosor del punto: <strong><span id="pixelSizeValue">2</span></strong></label>
+            <div class="input-row">
+                <input type="range" id="pixel_size" min="1" max="10" step="1" value="2">
+                <button type="button" class="reset-btn" data-target="pixel_size">↺</button>
+            </div>
+        </div>
+        
+        <div class="control-group inline-reset">
+            <label>Umbral: <strong><span id="thresholdValue">50%</span></strong></label>
+            <div class="input-row">
+                <input type="range" id="threshold" min="0" max="255" value="128">
+                <button type="button" class="reset-btn" data-target="threshold">↺</button>
+            </div>
+        </div>
+
+        <button id="downloadBtn">Descargar PNG</button>
+    </div>
+
+    <!-- PREVIEW -->
+    <div class="preview">
+        <h3>Vista previa</h3>
+
+        <div class="preview-canvas-wrapper">
+            <canvas id="previewCanvas" width="600" height="800"></canvas>
+        </div>
+    </div>
+
+</div>
+<div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loader-content">
+        <div class="spinner"></div>
+        <h3 id="loading-text">Iniciando...</h3>
+        <p class="sub-text">Esto toma unos 30 segundos por la Calidad IA</p>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</body>
+</html>

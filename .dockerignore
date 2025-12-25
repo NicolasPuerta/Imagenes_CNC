@@ -1,0 +1,19 @@
+# ¡Muy importante! No copiar tu entorno virtual local
+# Docker instalará las librerías limpias basadas en Linux
+env/
+venv/
+
+# Archivos compilados
+__pycache__/
+*.pyc
+
+# Archivos de Git
+.git/
+.gitignore
+
+# Archivos de configuración de Docker (no son necesarios dentro del contenedor)
+Dockerfile
+.dockerignore
+
+# Archivos de sistema
+.DS_Store

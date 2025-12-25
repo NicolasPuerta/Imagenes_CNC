@@ -1,0 +1,15 @@
+# Entorno virtual (tu carpeta 'env')
+env/
+venv/
+
+# Archivos compilados de Python (se generan solos)
+__pycache__/
+*.pyc
+
+# Variables de entorno (si usaras un archivo .env con claves)
+.env
+
+# Archivos de sistema e IDEs
+.DS_Store
+.vscode/
+.idea/
