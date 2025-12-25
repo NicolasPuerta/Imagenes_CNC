@@ -5,6 +5,8 @@ const imageInput = document.getElementById("imageInput");
 const canvas = document.getElementById("previewCanvas");
 const ctx = canvas.getContext("2d");
 
+let isProcessing = false; // Bloqueo de peticiones simultáneas
+
 // Elementos de la Animación de Carga
 const overlay = document.getElementById("loading-overlay");
 const loadingText = document.getElementById("loading-text");
@@ -95,9 +97,15 @@ function updateLabels() {
 function updatePreview() {
     if (!currentImage) return;
 
-    // --- LÓGICA DE CONTROL ---
-    // Solo mostramos la animación si es una imagen nueva (ArtGuru).
-    // Si es solo un ajuste de sliders, no mostramos nada (es rápido).
+    // Si ya hay una petición volando, no enviamos otra.
+    // Esto evita que el navegador aborte la conexión y tire ERR_FAILED.
+    if (isProcessing) {
+        console.warn("Petición en curso, ignorando cambio actual...");
+        return;
+    }
+
+    isProcessing = true; // Iniciamos bloqueo
+
     if (isNewImage) {
         startLoadingAnimation();
     }
@@ -113,7 +121,7 @@ function updatePreview() {
 
     fetch("/preview", { method: "POST", body: formData })
         .then(res => {
-            if (!res.ok) throw new Error("Error en la respuesta del servidor");
+            if (!res.ok) throw new Error("Servidor ocupado o error 500");
             return res.blob();
         })
         .then(blob => {
@@ -121,49 +129,37 @@ function updatePreview() {
             img.onload = () => {
                 const targetWidth = 600;
                 const targetHeight = 800;
-
                 canvas.width = targetWidth;
                 canvas.height = targetHeight;
-
                 ctx.clearRect(0, 0, targetWidth, targetHeight);
 
-                const scale = Math.min(
-                    targetWidth / img.width,
-                    targetHeight / img.height
-                );
-
+                const scale = Math.min(targetWidth / img.width, targetHeight / img.height);
                 const drawWidth = img.width * scale;
                 const drawHeight = img.height * scale;
-
                 const offsetX = (targetWidth - drawWidth) / 2;
                 const offsetY = (targetHeight - drawHeight) / 2;
 
                 ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+                URL.revokeObjectURL(img.src); // Limpieza de memoria
             };
             img.src = URL.createObjectURL(blob);
         })
         .catch(err => {
             console.error("Error en preview:", err);
-            alert("Ocurrió un error al procesar la imagen.");
+            // Solo mostramos error si no es una cancelación normal
+            if (isNewImage) alert("Error al conectar con la IA de ArtGuru.");
         })
         .finally(() => {
-            // Detenemos la animación si estaba corriendo
             stopLoadingAnimation();
-            
-            // --- IMPORTANTE ---
-            // Una vez cargada la primera vez, ya no es "nueva".
-            // Los siguientes cambios (sliders) no activarán la animación.
             isNewImage = false; 
+            isProcessing = false; // Liberamos el bloqueo para la siguiente petición
         });
 }
 
-/* =========================================
-   CONTROL DE TIEMPO (DEBOUNCE)
-   ========================================= */
 function schedulePreview() {
     clearTimeout(debounceTimer);
-    // Tiempo reducido para respuesta rápida en sliders
-    debounceTimer = setTimeout(updatePreview, 150); 
+    // Un poco más de tiempo para dar respiro al servidor
+    debounceTimer = setTimeout(updatePreview, 300); 
 }
 
 /* =========================================

@@ -18,4 +18,11 @@ EXPOSE 5000
 
 # Comando para correr la app usando Gunicorn
 # "app:app" significa: del archivo app.py, busca el objeto 'app'
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} app:app"]
+CMD ["sh", "-c", "gunicorn app:app \
+  --bind 0.0.0.0:${PORT:-5000} \
+  --workers 2 \
+  --threads 2 \
+  --timeout 120 \
+  --graceful-timeout 120 \
+  --max-requests 500 \
+  --max-requests-jitter 50"]

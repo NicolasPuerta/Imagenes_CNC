@@ -12,6 +12,7 @@ from numba import jit
 import logging
 from dotenv import load_dotenv
 import os
+from flask_cors import CORS
 
 # ================== LOGGING ==================
 logging.basicConfig(
@@ -22,7 +23,7 @@ log = logging.getLogger(__name__)
 
 # ================== APP ==================
 app = Flask(__name__)
-
+CORS(app)
 # ================== CONFIGURACIÓN ==================
 load_dotenv()
 ARTGURU_API_KEY = os.getenv("APIKEY")
@@ -98,7 +99,7 @@ def call_artguru_api(img_bgr):
                     final_url = data_obj.get("generateUrl")
                     
                     if not final_url:
-                        log.error(f"No se encontró 'generateImage' en el JSON: {full_json}")
+                        log.error(f"No se encontró 'generateUrl' en el JSON: {full_json}")
                         return img_bgr
 
                     log.info(f"¡Imagen lista! Descargando de: {final_url}")
@@ -135,63 +136,51 @@ def procesar_pipeline_pesado(img_hash, img_bytes):
     log.info(f"Pipeline pesado (cache MISS): {img_hash}")
     start = time.time()
 
-    # ================== DECODIFICAR IMAGEN ==================
     nparr = np.frombuffer(img_bytes, np.uint8)
     img_original = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
     if img_original is None:
-        log.error("Error decodificando imagen")
         return None
 
-    # ================== 1. MEJORA CON ARTGURU ==================
+    # 1. MEJORA CON ARTGURU
     img_mejorada = call_artguru_api(img_original)
     
+    # --- OPTIMIZACIÓN CRUCIAL: REESCALADO ---
+    # Artguru devuelve 4096px, lo cual es demasiado para procesar en cada slider.
+    # Reducimos a un tamaño razonable para web (ej. 1200px)
+    max_dim = 1200
+    h, w = img_mejorada.shape[:2]
+    if max(h, w) > max_dim:
+        scale = max_dim / max(h, w)
+        img_mejorada = cv2.resize(img_mejorada, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        log.debug(f"Imagen reescalada para fluidez: {img_mejorada.shape}")
 
-    # ================== 2. PREPARAR PARA REMBG ==================
-    log.debug("Preparando imagen para rembg (RGB + padding)")
+    # 2. PREPARAR PARA REMBG
     img_rgb = cv2.cvtColor(img_mejorada, cv2.COLOR_BGR2RGB)
     img_pil = Image.fromarray(img_rgb)
 
-    # Padding preventivo (evita que se coma bordes)
+    # Padding preventivo
     w, h = img_pil.size
-    pad_ratio = 0.15
-    pad_w = int(w * pad_ratio)
-    pad_h = int(h * pad_ratio)
+    pad_ratio = 0.10 # Reducido un poco para ganar velocidad
+    pad_w, pad_h = int(w * pad_ratio), int(h * pad_ratio)
 
-    img_padded = Image.new(
-        "RGB",
-        (w + pad_w * 2, h + pad_h * 2),
-        (255, 255, 255)
-    )
+    img_padded = Image.new("RGB", (w + pad_w * 2, h + pad_h * 2), (255, 255, 255))
     img_padded.paste(img_pil, (pad_w, pad_h))
 
-    # ================== 3. QUITAR FONDO (LOW RAM) ==================
-    log.debug("Quitando fondo con rembg (modo conservador)")
-    img_no_bg = remove(
-        img_padded,
-        session=rembg_session,
-        only_mask=False,
-        post_process_mask=False
-    )
+    # 3. QUITAR FONDO
+    img_no_bg = remove(img_padded, session=rembg_session)
 
-    # ================== 4. PIL → NUMPY RGBA ==================
+    # 4. PROCESO DE ALPHA Y RECORTADO
     result_rgba = np.array(img_no_bg, dtype=np.uint8)
-
-    # ================== 5. SUAVIZADO LIGERO DEL ALPHA ==================
     b, g, r, a = cv2.split(result_rgba)
     a = cv2.GaussianBlur(a, (5, 5), 0)
     result_rgba = cv2.merge([b, g, r, a])
 
-    # ================== 6. QUITAR PADDING ==================
-    h2, w2, _ = result_rgba.shape
-    result_rgba = result_rgba[
-        pad_h : h2 - pad_h,
-        pad_w : w2 - pad_w
-    ]
+    # Quitar padding
+    h2, w2 = result_rgba.shape[:2]
+    result_rgba = result_rgba[pad_h : h2 - pad_h, pad_w : w2 - pad_w]
 
-    # ================== 7. RGBA → BGRA ==================
     result = cv2.cvtColor(result_rgba, cv2.COLOR_RGBA2BGRA)
-
     log.info(f"Pipeline pesado finalizado en {time.time() - start:.2f}s")
     return result
 
@@ -203,7 +192,9 @@ def process_logic():
         log.warning("No se recibió imagen")
         return "No image", 400
 
-    img_bytes = request.files["image"].read()
+    file = request.files["image"]
+    file.seek(0) # <--- Asegura que siempre leamos desde el principio del archivo
+    img_bytes = file.read()
     if not img_bytes:
         log.warning("Imagen vacía")
         return "Empty", 400
@@ -268,9 +259,12 @@ def index():
 
 @app.route("/preview", methods=["POST"])
 def preview_route():
-    log.debug("Ruta /preview")
-    return process_logic()
-
+    try:
+        return process_logic()
+    except Exception as e:
+        log.error(f"Error en /preview: {str(e)}")
+        return {"error": str(e)}, 500
+    
 @app.route("/export", methods=["POST"])
 def export_route():
     log.debug("Ruta /export")
@@ -279,4 +273,4 @@ def export_route():
 # ================== MAIN ==================
 if __name__ == "__main__":
     log.info("Servidor Flask iniciado en http://localhost:5000")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
