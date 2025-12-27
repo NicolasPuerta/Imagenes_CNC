@@ -2,8 +2,10 @@
    ELEMENTOS DEL DOM Y CONFIGURACIÓN
    ========================================= */
 const imageInput = document.getElementById("imageInput");
-const canvas = document.getElementById("previewCanvas");
-const ctx = canvas.getContext("2d");
+const imageSelect = document.getElementById("imageSelect");
+const carouselInner = document.getElementById("carousel-inner");
+const prevBtn = document.getElementById("prevBtn");
+const nextBtn = document.getElementById("nextBtn");
 
 let isProcessing = false; // Bloqueo de peticiones simultáneas
 
@@ -41,14 +43,19 @@ const defaultValues = {
     pixel_size: 2
 };
 
-let currentImage = null;
+let currentImages = [];
+let settingsMap = {}; // {filename: {brightness:.., ...}}
+let currentFilename = null;
+let previousUrls = [];
+let currentIndex = 0;
+let totalSlides = 0;
 let debounceTimer = null;
 
 /* =========================================
    LÓGICA DE ANIMACIÓN
    ========================================= */
 const messages = [
-    "Subiendo imagen a la nube...",
+    "Subiendo imágenes a la nube...",
     "IA de ArtGuru analizando detalles...",
     "Mejorando nitidez y texturas...",
     "Eliminando fondo con precisión...",
@@ -92,10 +99,85 @@ function updateLabels() {
 }
 
 /* =========================================
+   CARGAR CONFIGURACIÓN A INPUTS
+   ========================================= */
+function loadSettingsToInputs() {
+    const s = settingsMap[currentFilename];
+    if (!s) return;
+
+    inputs.brightness.value = s.brightness;
+    inputs.contrast.value = s.contrast;
+    inputs.invert.checked = s.invert;
+    inputs.dither.checked = s.dither;
+    inputs.threshold.value = s.threshold;
+    inputs.pixel_size.value = s.pixel_size;
+
+    updateLabels();
+}
+
+/* =========================================
+   GUARDAR CONFIGURACIÓN DESDE INPUTS
+   ========================================= */
+function saveInputsToSettings() {
+    if (!currentFilename) return;
+
+    const s = settingsMap[currentFilename];
+    s.brightness = parseInt(inputs.brightness.value);
+    s.contrast = parseFloat(inputs.contrast.value);
+    s.invert = inputs.invert.checked;
+    s.dither = inputs.dither.checked;
+    s.threshold = parseInt(inputs.threshold.value);
+    s.pixel_size = parseInt(inputs.pixel_size.value);
+}
+
+/* =========================================
+   MOSTRAR PREVIEWS EN CARRUSEL
+   ========================================= */
+function displayPreviews(previews) {
+    // Revocar URLs anteriores para liberar memoria
+    previousUrls.forEach(u => URL.revokeObjectURL(u));
+    previousUrls = [];
+
+    carouselInner.innerHTML = '';
+    previews.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'carousel-item';
+        
+        const img = document.createElement('img');
+        img.src = p.data;
+        img.alt = p.filename;
+        
+        item.appendChild(img);
+        carouselInner.appendChild(item);
+
+        // Si es URL de blob, guardarla para revocar después
+        if (!p.data.startsWith('data:')) {
+            previousUrls.push(p.data);
+        }
+    });
+
+    totalSlides = previews.length;
+    showSlide(currentIndex);
+
+    if (totalSlides > 1) {
+        prevBtn.style.display = 'block';
+        nextBtn.style.display = 'block';
+    } else {
+        prevBtn.style.display = 'none';
+        nextBtn.style.display = 'none';
+    }
+}
+
+function showSlide(index) {
+    currentIndex = Math.max(0, Math.min(index, totalSlides - 1));
+    carouselInner.style.transform = `translateX(-${currentIndex * 100}%)`;
+}
+
+/* =========================================
    ENVIAR DATOS AL SERVIDOR Y PREVIEW
    ========================================= */
 function updatePreview() {
-    if (!currentImage) return;
+    if (currentImages.length === 0) return;
 
     // Si ya hay una petición volando, no enviamos otra.
     // Esto evita que el navegador aborte la conexión y tire ERR_FAILED.
@@ -111,38 +193,33 @@ function updatePreview() {
     }
 
     const formData = new FormData();
-    formData.append("image", currentImage);
-    formData.append("brightness", inputs.brightness.value);
-    formData.append("contrast", inputs.contrast.value);
-    formData.append("invert", inputs.invert.checked);
-    formData.append("dither", inputs.dither.checked);
-    formData.append("threshold", inputs.threshold.value);
-    formData.append("pixel_size", inputs.pixel_size.value);
+    currentImages.forEach(file => formData.append("image", file));
+
+    const settings = {};
+    currentImages.forEach(file => {
+        settings[file.name] = { ...settingsMap[file.name] };
+    });
+    formData.append("settings", JSON.stringify(settings));
 
     fetch("/preview", { method: "POST", body: formData })
         .then(res => {
             if (!res.ok) throw new Error("Servidor ocupado o error 500");
-            return res.blob();
+            const contentType = res.headers.get('Content-Type');
+            if (contentType.includes('application/json')) {
+                return res.json().then(json => ({ type: 'json', data: json }));
+            } else {
+                return res.blob().then(blob => ({ type: 'blob', data: blob }));
+            }
         })
-        .then(blob => {
-            const img = new Image();
-            img.onload = () => {
-                const targetWidth = 600;
-                const targetHeight = 800;
-                canvas.width = targetWidth;
-                canvas.height = targetHeight;
-                ctx.clearRect(0, 0, targetWidth, targetHeight);
-
-                const scale = Math.min(targetWidth / img.width, targetHeight / img.height);
-                const drawWidth = img.width * scale;
-                const drawHeight = img.height * scale;
-                const offsetX = (targetWidth - drawWidth) / 2;
-                const offsetY = (targetHeight - drawHeight) / 2;
-
-                ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
-                URL.revokeObjectURL(img.src); // Limpieza de memoria
-            };
-            img.src = URL.createObjectURL(blob);
+        .then(result => {
+            let previews = [];
+            if (result.type === 'blob') {
+                const url = URL.createObjectURL(result.data);
+                previews = [{ filename: currentImages[0].name, data: url }];
+            } else {
+                previews = result.data.previews;
+            }
+            displayPreviews(previews);
         })
         .catch(err => {
             console.error("Error en preview:", err);
@@ -166,16 +243,52 @@ function schedulePreview() {
    ESCUCHA DE EVENTOS
    ========================================= */
 
-// Al seleccionar una imagen nueva
+// Al seleccionar imágenes nuevas
 imageInput.addEventListener("change", e => {
-    if (e.target.files && e.target.files[0]) {
-        currentImage = e.target.files[0];
+    if (e.target.files && e.target.files.length > 0) {
+        currentImages = Array.from(e.target.files);
         
+        settingsMap = {};
+        imageSelect.innerHTML = '';
+        currentImages.forEach(file => {
+            settingsMap[file.name] = { ...defaultValues };
+            const opt = document.createElement('option');
+            opt.value = file.name;
+            opt.text = file.name;
+            imageSelect.appendChild(opt);
+        });
+
+        if (currentImages.length > 0) {
+            currentFilename = currentImages[0].name;
+            imageSelect.value = currentFilename;
+            loadSettingsToInputs();
+        }
+
+        if (currentImages.length <= 1) {
+            imageSelect.parentElement.style.display = 'none';
+        } else {
+            imageSelect.parentElement.style.display = 'block';
+        }
+
         // --- AQUÍ ACTIVAMOS LA BANDERA ---
         // Decimos: "¡Oye, esto requerirá ArtGuru, prende la animación!"
         isNewImage = true; 
         
+        currentIndex = 0;
         updatePreview(); 
+    }
+});
+
+// Selector de imagen
+imageSelect.addEventListener("change", () => {
+    currentFilename = imageSelect.value;
+    loadSettingsToInputs();
+
+    // Saltar al slide correspondiente
+    const index = currentImages.findIndex(f => f.name === currentFilename);
+    if (index !== -1) {
+        currentIndex = index;
+        showSlide(currentIndex);
     }
 });
 
@@ -185,9 +298,32 @@ Object.values(inputs).forEach(input => {
     input.addEventListener("input", () => {
         // AQUÍ NO tocamos isNewImage, así que sigue siendo false.
         updateLabels();
+        saveInputsToSettings();
         schedulePreview();
     });
 });
+
+// Controles del carrusel
+prevBtn.addEventListener("click", () => {
+    currentIndex = (currentIndex > 0) ? currentIndex - 1 : totalSlides - 1;
+    showSlide(currentIndex);
+    syncCarouselToSelect();
+});
+
+nextBtn.addEventListener("click", () => {
+    currentIndex = (currentIndex < totalSlides - 1) ? currentIndex + 1 : 0;
+    showSlide(currentIndex);
+    syncCarouselToSelect();
+});
+
+function syncCarouselToSelect() {
+    const file = currentImages[currentIndex];
+    if (file) {
+        currentFilename = file.name;
+        imageSelect.value = currentFilename;
+        loadSettingsToInputs();
+    }
+}
 
 /* =========================================
    RESET DE VALORES INDIVIDUALES
@@ -206,6 +342,7 @@ document.querySelectorAll(".reset-btn").forEach(btn => {
         }
 
         updateLabels();
+        saveInputsToSettings();
         schedulePreview();
     });
 });
@@ -214,7 +351,7 @@ document.querySelectorAll(".reset-btn").forEach(btn => {
    EXPORTACIÓN
    ========================================= */
 document.getElementById("downloadBtn").addEventListener("click", () => {
-    if (!currentImage) {
+    if (currentImages.length === 0) {
         alert("Por favor, sube una imagen primero.");
         return;
     }
@@ -224,21 +361,31 @@ document.getElementById("downloadBtn").addEventListener("click", () => {
     startLoadingAnimation(); 
 
     const formData = new FormData();
-    formData.append("image", currentImage);
-    formData.append("brightness", inputs.brightness.value);
-    formData.append("contrast", inputs.contrast.value);
-    formData.append("invert", inputs.invert.checked);
-    formData.append("dither", inputs.dither.checked);
-    formData.append("threshold", inputs.threshold.value);
-    formData.append("pixel_size", inputs.pixel_size.value);
+    currentImages.forEach(file => formData.append("image", file));
+
+    const settings = {};
+    currentImages.forEach(file => {
+        settings[file.name] = { ...settingsMap[file.name] };
+    });
+    formData.append("settings", JSON.stringify(settings));
 
     fetch("/export", { method: "POST", body: formData })
-        .then(res => res.blob())
-        .then(blob => {
+        .then(res => {
+            if (!res.ok) throw new Error("Error en exportación");
+            return res.blob().then(blob => ({
+                blob,
+                contentType: res.headers.get('Content-Type')
+            }));
+        })
+        .then(({ blob, contentType }) => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `cnc_export_${Date.now()}.png`;
+            if (contentType.includes('image/png')) {
+                a.download = `cnc_export_${Date.now()}.png`;
+            } else if (contentType.includes('application/zip')) {
+                a.download = `cnc_exports_${Date.now()}.zip`;
+            }
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

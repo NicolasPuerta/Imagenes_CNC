@@ -16,8 +16,13 @@
         <h2>Herramientas CNC</h2>
 
         <div class="control-group">
-            <label>Imagen</label>
-            <input type="file" id="imageInput" accept="image/*">
+            <label>Imágenes</label>
+            <input type="file" id="imageInput" accept="image/*" multiple>
+        </div>
+
+        <div class="control-group" id="imageSelectGroup" style="display: none;">
+            <label>Configurar imagen:</label>
+            <select id="imageSelect"></select>
         </div>
 
         <div class="control-group inline-reset">
@@ -75,8 +80,10 @@
     <div class="preview">
         <h3>Vista previa</h3>
 
-        <div class="preview-canvas-wrapper">
-            <canvas id="previewCanvas" width="600" height="800"></canvas>
+        <div id="carousel" class="carousel">
+            <div id="carousel-inner" class="carousel-inner"></div>
+            <button id="prevBtn" class="carousel-btn prev">‹</button>
+            <button id="nextBtn" class="carousel-btn next">›</button>
         </div>
     </div>
 

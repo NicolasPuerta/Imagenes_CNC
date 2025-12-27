@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, render_template
+from flask import Flask, request, send_file, render_template, jsonify
 from rembg import remove, new_session
 from PIL import Image
 import cv2
@@ -13,6 +13,9 @@ import logging
 from dotenv import load_dotenv
 import os
 from flask_cors import CORS
+import base64
+import zipfile
+import json
 
 # ================== LOGGING ==================
 logging.basicConfig(
@@ -156,81 +159,124 @@ def procesar_pipeline_pesado(img_hash, img_bytes):
 
 # ================== PROCESAMIENTO DINÁMICO ==================
 def process_logic():
-    if "image" not in request.files:
-        return "No image", 400
+    files = request.files.getlist("image")
+    if not files or all(not f.filename for f in files):
+        return "No images", 400
 
-    file = request.files["image"]
-    img_bytes = file.read()
-    img_hash = hashlib.md5(img_bytes).hexdigest()
+    settings_str = request.form.get("settings", "{}")
+    settings = json.loads(settings_str)
 
-    brightness = int(request.form.get("brightness", 0))
-    contrast = float(request.form.get("contrast", 1.0))
-    threshold = int(request.form.get("threshold", 128))
-    pixel_size = int(request.form.get("pixel_size", 1))
-    dither = request.form.get("dither") == "true"
-    invert = request.form.get("invert") == "true"
+    default_params = {
+        "brightness": 0,
+        "contrast": 1.0,
+        "threshold": 128,
+        "pixel_size": 1,
+        "dither": False,
+        "invert": False
+    }
 
-    # Pipeline pesado (devuelve BGRA)
-    img_bgra = procesar_pipeline_pesado(img_hash, img_bytes)
+    processed_images = []
+    for file in files:
+        if not file.filename:
+            continue
+        img_bytes = file.read()
+        img_hash = hashlib.md5(img_bytes).hexdigest()
 
-    # Separar canales CORRECTAMENTE
-    b, g, r, a = cv2.split(img_bgra)
-    img_bgr = cv2.merge([b, g, r])  # 🔥 sigue siendo BGR
+        params = settings.get(file.filename, default_params)
 
-    # Invertir colores si es necesario
-    if invert:
-        img_bgr = cv2.bitwise_not(img_bgr)
-    # =========================
-    # DITHER ACTIVADO
-    # =========================
-    if dither:
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        brightness = int(params.get("brightness", 0))
+        contrast = float(params.get("contrast", 1.0))
+        threshold = int(params.get("threshold", 128))
+        pixel_size = int(params.get("pixel_size", 1))
+        dither = params.get("dither", False)
+        invert = params.get("invert", False)
 
-        bias = threshold - 128
-        gray_adj = cv2.convertScaleAbs(
-            gray,
-            alpha=contrast,
-            beta=brightness - bias
-        )
+        # Pipeline pesado (devuelve BGRA)
+        img_bgra = procesar_pipeline_pesado(img_hash, img_bytes)
 
-        h, w = gray_adj.shape
+        # Separar canales CORRECTAMENTE
+        b, g, r, a = cv2.split(img_bgra)
+        img_bgr = cv2.merge([b, g, r])  # 🔥 sigue siendo BGR
 
-        if pixel_size > 1:
-            sw, sh = max(1, w // pixel_size), max(1, h // pixel_size)
-            gray_small = cv2.resize(gray_adj, (sw, sh), interpolation=cv2.INTER_LANCZOS4)
-            dithered = jarvis_dither_fast(gray_small, 127)
-            gray_final = cv2.resize(dithered, (w, h), interpolation=cv2.INTER_NEAREST)
+        # Invertir colores si es necesario
+        if invert:
+            img_bgr = cv2.bitwise_not(img_bgr)
+        # =========================
+        # DITHER ACTIVADO
+        # =========================
+        if dither:
+            gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+            bias = threshold - 128
+            gray_adj = cv2.convertScaleAbs(
+                gray,
+                alpha=contrast,
+                beta=brightness - bias
+            )
+
+            h, w = gray_adj.shape
+
+            if pixel_size > 1:
+                sw, sh = max(1, w // pixel_size), max(1, h // pixel_size)
+                gray_small = cv2.resize(gray_adj, (sw, sh), interpolation=cv2.INTER_LANCZOS4)
+                dithered = jarvis_dither_fast(gray_small, 127)
+                gray_final = cv2.resize(dithered, (w, h), interpolation=cv2.INTER_NEAREST)
+            else:
+                gray_final = jarvis_dither_fast(gray_adj, 127)
+
+            final_bgr = cv2.cvtColor(
+                gray_final.astype(np.uint8),
+                cv2.COLOR_GRAY2BGR
+            )
+
+        # =========================
+        # SIN DITHER (COLOR REAL)
+        # =========================
         else:
-            gray_final = jarvis_dither_fast(gray_adj, 127)
+            
+            final_bgr = cv2.convertScaleAbs(
+                img_bgr,
+                alpha=contrast,
+                beta=brightness
+            )
 
-        final_bgr = cv2.cvtColor(
-            gray_final.astype(np.uint8),
-            cv2.COLOR_GRAY2BGR
-        )
+        # =========================
+        # UNIR ALFA Y CONVERTIR UNA SOLA VEZ
+        # =========================
+        final_bgra = cv2.merge([final_bgr[:, :, 0],
+                                final_bgr[:, :, 1],
+                                final_bgr[:, :, 2],
+                                a])
 
-    # =========================
-    # SIN DITHER (COLOR REAL)
-    # =========================
+        final_rgba = cv2.cvtColor(final_bgra, cv2.COLOR_BGRA2RGBA)
+
+        _, buffer = cv2.imencode(".png", final_rgba)
+        processed_images.append((file.filename, buffer.tobytes()))
+
+    num = len(processed_images)
+    if num == 0:
+        return "No images processed", 400
+
+    is_preview = request.path == "/preview"
+
+    if num == 1:
+        return send_file(io.BytesIO(processed_images[0][1]), mimetype="image/png")
+
     else:
-        
-        final_bgr = cv2.convertScaleAbs(
-            img_bgr,
-            alpha=contrast,
-            beta=brightness
-        )
-
-    # =========================
-    # UNIR ALFA Y CONVERTIR UNA SOLA VEZ
-    # =========================
-    final_bgra = cv2.merge([final_bgr[:, :, 0],
-                            final_bgr[:, :, 1],
-                            final_bgr[:, :, 2],
-                            a])
-
-    final_rgba = cv2.cvtColor(final_bgra, cv2.COLOR_BGRA2RGBA)
-
-    _, buffer = cv2.imencode(".png", final_rgba)
-    return send_file(io.BytesIO(buffer), mimetype="image/png")
+        if is_preview:
+            previews = []
+            for fname, buf in processed_images:
+                b64 = base64.b64encode(buf).decode('utf-8')
+                previews.append({"filename": fname, "data": f"data:image/png;base64,{b64}"})
+            return jsonify({"previews": previews})
+        else:  # export
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for fname, buf in processed_images:
+                    arcname = os.path.splitext(fname)[0] + '_processed.png'
+                    zipf.writestr(arcname, buf)
+            zip_buffer.seek(0)
+            return send_file(zip_buffer, mimetype='application/zip', as_attachment=True, download_name='processed_images.zip')
 
 
 # ================== RUTAS ==================
