@@ -177,6 +177,9 @@ def process_logic():
     b, g, r, a = cv2.split(img_bgra)
     img_bgr = cv2.merge([b, g, r])  # 🔥 sigue siendo BGR
 
+    # Invertir colores si es necesario
+    if invert:
+        img_bgr = cv2.bitwise_not(img_bgr)
     # =========================
     # DITHER ACTIVADO
     # =========================
@@ -200,9 +203,6 @@ def process_logic():
         else:
             gray_final = jarvis_dither_fast(gray_adj, 127)
 
-        if invert:
-            gray_final = 255 - gray_final
-
         final_bgr = cv2.cvtColor(
             gray_final.astype(np.uint8),
             cv2.COLOR_GRAY2BGR
@@ -212,6 +212,7 @@ def process_logic():
     # SIN DITHER (COLOR REAL)
     # =========================
     else:
+        
         final_bgr = cv2.convertScaleAbs(
             img_bgr,
             alpha=contrast,
