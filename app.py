@@ -38,24 +38,41 @@ log.info(f"Sesión rembg cargada. API Key Artguru: {'Detectada' if ARTGURU_API_K
 
 # ================== DITHERING JARVIS-JUDICE-NINKE (OPTIMIZADO) ==================
 @jit(nopython=True, fastmath=True)
-def jarvis_dither_fast(img_gray, threshold_val):
-    h, w = img_gray.shape
-    img = img_gray.astype(np.float32)
-
-    for y in range(h - 2):
-        for x in range(2, w - 2):
+def jarvis_dither_fast(img: np.ndarray, threshold_val: float) -> np.ndarray:
+    h, w = img.shape
+    for y in range(h):
+        for x in range(w):
             old_pix = img[y, x]
-            # Binarización basada en el umbral
             new_pix = 255.0 if old_pix > threshold_val else 0.0
             img[y, x] = new_pix
             err = old_pix - new_pix
-
-            # Difusión de error de Jarvis (Matriz de 12 vecinos)
-            img[y, x+1]   += err * (7/48);  img[y, x+2]   += err * (5/48)
-            img[y+1, x-2] += err * (3/48); img[y+1, x-1] += err * (5/48); img[y+1, x] += err * (7/48)
-            img[y+1, x+1] += err * (5/48); img[y+1, x+2] += err * (3/48)
-            img[y+2, x-2] += err * (1/48); img[y+2, x-1] += err * (3/48); img[y+2, x] += err * (5/48)
-            img[y+2, x+1] += err * (3/48); img[y+2, x+2] += err * (1/48)
+            # current row
+            if x + 1 < w:
+                img[y, x + 1] += err * (7 / 48)
+            if x + 2 < w:
+                img[y, x + 2] += err * (5 / 48)
+            # next row
+            if y + 1 < h:
+                if x - 2 >= 0:
+                    img[y + 1, x - 2] += err * (3 / 48)
+                if x - 1 >= 0:
+                    img[y + 1, x - 1] += err * (5 / 48)
+                img[y + 1, x] += err * (7 / 48)
+                if x + 1 < w:
+                    img[y + 1, x + 1] += err * (5 / 48)
+                if x + 2 < w:
+                    img[y + 1, x + 2] += err * (3 / 48)
+            # row after
+            if y + 2 < h:
+                if x - 2 >= 0:
+                    img[y + 2, x - 2] += err * (1 / 48)
+                if x - 1 >= 0:
+                    img[y + 2, x - 1] += err * (3 / 48)
+                img[y + 2, x] += err * (5 / 48)
+                if x + 1 < w:
+                    img[y + 2, x + 1] += err * (3 / 48)
+                if x + 2 < w:
+                    img[y + 2, x + 2] += err * (1 / 48)
     return img
 
 # ================== ARTGURU AI ==================
@@ -119,7 +136,7 @@ def procesar_pipeline_pesado(img_hash, img_bytes):
     img_enhanced = call_artguru_api(img_cv)
     
     # 2. Reescalado de alta calidad (2000px para granulado fino)
-    max_dim = 2000
+    max_dim = 3000
     h, w = img_enhanced.shape[:2]
     if max(h, w) > max_dim:
         scale = max_dim / max(h, w)
@@ -151,7 +168,7 @@ def procesar_pipeline_pesado(img_hash, img_bytes):
 
     # 6. Suavizar máscara de bordes
     b, g, r, a = cv2.split(result_rgba)
-    a = cv2.GaussianBlur(a, (3, 3), 0)
+    a = cv2.GaussianBlur(a, (5, 5), 0)
     final_bgra = cv2.merge([b, g, r, a])
 
     log.info(f"Pipeline pesado terminado en {time.time() - start_time:.2f}s")
@@ -219,10 +236,18 @@ def process_logic():
             if pixel_size > 1:
                 sw, sh = max(1, w // pixel_size), max(1, h // pixel_size)
                 gray_small = cv2.resize(gray_adj, (sw, sh), interpolation=cv2.INTER_LANCZOS4)
-                dithered = jarvis_dither_fast(gray_small, 127)
-                gray_final = cv2.resize(dithered, (w, h), interpolation=cv2.INTER_NEAREST)
+                dithered = jarvis_dither_fast(gray_small.astype(np.float32), 120)
+                gray_final = cv2.resize(dithered, (w, h), interpolation=cv2.INTER_LINEAR)
+                kernel = np.array([ [-1,-1,-1],
+                                    [-1, 9,-1],
+                                    [-1,-1,-1]])
+                gray_final = cv2.filter2D(gray_final.astype(np.uint8), -1, kernel)
+                gray_final = np.clip(gray_final, 0, 255)
             else:
-                gray_final = jarvis_dither_fast(gray_adj, 127)
+                dithered = jarvis_dither_fast(gray_adj.astype(np.float32), 120)
+                gray_final = dithered
+
+
 
             final_bgr = cv2.cvtColor(
                 gray_final.astype(np.uint8),
@@ -250,7 +275,7 @@ def process_logic():
 
         final_rgba = cv2.cvtColor(final_bgra, cv2.COLOR_BGRA2RGBA)
 
-        _, buffer = cv2.imencode(".png", final_rgba)
+        _, buffer = cv2.imencode(".png", final_rgba, [cv2.IMWRITE_PNG_COMPRESSION, 0])
         processed_images.append((file.filename, buffer.tobytes()))
 
     num = len(processed_images)
@@ -297,7 +322,7 @@ def export_route():
     except Exception as e:
         log.error(f"Error Export: {e}")
         return {"error": str(e)}, 500
-
+# ================== INICIO SERVIDOR ==================
 if __name__ == "__main__":
     log.info("Iniciando Flask en http://0.0.0.0:5000")
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
