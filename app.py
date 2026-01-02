@@ -327,5 +327,5 @@ def export_route():
         return {"error": str(e)}, 500
 # ================== INICIO SERVIDOR ==================
 if __name__ == "__main__":
-    log.info("Iniciando Flask en http://0.0.0.0:5000")
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    log.info("Iniciando Flask en http://0.0.0.0:10000")
+    app.run(host='0.0.0.0', port=10000, debug=False, threaded=True)

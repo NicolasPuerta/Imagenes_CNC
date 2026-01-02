@@ -13,16 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia el resto del código
 COPY . .
 
-# Exponer el puerto (Render usa variables de entorno, pero esto es buena práctica)
-EXPOSE 5000
+# Expone el puerto 10000
+EXPOSE 10000
 
-# Comando para correr la app usando Gunicorn
-# "app:app" significa: del archivo app.py, busca el objeto 'app'
-CMD ["sh", "-c", "gunicorn app:app \
-  --bind 0.0.0.0:${PORT:-5000} \
-  --workers 2 \
-  --threads 2 \
-  --timeout 120 \
-  --graceful-timeout 120 \
-  --max-requests 500 \
-  --max-requests-jitter 50"]
+# Cambia el CMD a esto (más simple y fiable para Render)
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]
