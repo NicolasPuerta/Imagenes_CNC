@@ -19,4 +19,5 @@ COPY . .
 
 EXPOSE 10000
 
-CMD gunicorn -w 2 -k gthread --threads 4 -b 0.0.0.0:$PORT app:app
+CMD sh -c "echo PORT=${PORT} && python app.py"
+
