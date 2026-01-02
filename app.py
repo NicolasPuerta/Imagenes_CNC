@@ -331,5 +331,6 @@ def health():
     return "OK", 200
 # ================== INICIO SERVIDOR ==================
 if __name__ == "__main__":
-    log.info("Iniciando Flask en http://0.0.0.0:10000")
-    app.run(host='0.0.0.0', port=10000, debug=False, threaded=True)
+    port = int(os.environ.get("PORT", 10000))
+    log.info(f"Iniciando Flask en http://0.0.0.0:{port}")
+    app.run(host="0.0.0.0", port=port, debug=False)
