@@ -325,6 +325,10 @@ def export_route():
     except Exception as e:
         log.error(f"Error Export: {e}")
         return {"error": str(e)}, 500
+
+@app.route('/health')
+def health():
+    return "OK", 200
 # ================== INICIO SERVIDOR ==================
 if __name__ == "__main__":
     log.info("Iniciando Flask en http://0.0.0.0:10000")
