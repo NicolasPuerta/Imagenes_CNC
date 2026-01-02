@@ -2,11 +2,9 @@ import os
 
 # Render siempre usa el puerto 10000 en instancias free
 # Usamos directamente 10000, con fallback solo para pruebas locales
-port = os.environ.get('PORT', '5000')
-bind = f"0.0.0.0:{port}"
 
 # Si quieres ser ultra explícito (recomendado para evitar dudas):
-# bind = "0.0.0.0:10000"
+bind = "0.0.0.0:10000"
 
 workers = 2
 threads = 2
