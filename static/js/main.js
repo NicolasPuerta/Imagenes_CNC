@@ -40,7 +40,7 @@ const defaultValues = {
     threshold: 128,
     invert: false,
     dither: false,
-    pixel_size: 2
+    pixel_size: 1.0
 };
 
 let currentImages = [];
@@ -94,7 +94,7 @@ function updateLabels() {
     labels.threshold.textContent = Math.round((inputs.threshold.value / 255) * 100) + "%";
     
     if (labels.pixel_size) {
-        labels.pixel_size.textContent = inputs.pixel_size.value;
+        labels.pixel_size.textContent = parseFloat(inputs.pixel_size.value).toFixed(1);
     }
 }
 
@@ -127,7 +127,7 @@ function saveInputsToSettings() {
     s.invert = inputs.invert.checked;
     s.dither = inputs.dither.checked;
     s.threshold = parseInt(inputs.threshold.value);
-    s.pixel_size = parseInt(inputs.pixel_size.value);
+    s.pixel_size = parseFloat(inputs.pixel_size.value);
 }
 
 /* =========================================
@@ -399,6 +399,18 @@ document.getElementById("downloadBtn").addEventListener("click", () => {
             stopLoadingAnimation();
         });
 });
+document.getElementById("applyInvertToAll").addEventListener("click", () => {
+    if (currentImages.length === 0) return;
 
+    const invertValue = inputs.invert.checked; // Usa el valor actual del checkbox
+
+    // Aplicar a todos los settings
+    Object.keys(settingsMap).forEach(filename => {
+        settingsMap[filename].invert = invertValue;
+    });
+
+    // Actualizar preview para reflejar el cambio en todas
+    schedulePreview();
+});
 // Inicializar etiquetas
 updateLabels();

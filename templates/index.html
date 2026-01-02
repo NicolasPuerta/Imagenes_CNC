@@ -46,6 +46,8 @@
                 <input type="checkbox" id="invert">
                 Invertir colores
             </label>
+            <!-- Ejemplo: Colócalo después del checkbox de invert en tu formulario o sección de ajustes -->
+            <button id="applyInvertToAll" class="btn btn-secondary">Aplicar Invert a Todas</button>
         </div>
 
         <hr>
@@ -58,9 +60,9 @@
         </div>
 
         <div class="control-group inline-reset">
-            <label>Grosor del punto: <strong><span id="pixelSizeValue">2</span></strong></label>
+            <label>Grosor del punto: <strong><span id="pixelSizeValue">1</span></strong></label>
             <div class="input-row">
-                <input type="range" id="pixel_size" min="1" max="10" step="1" value="2">
+                <input type="range" id="pixel_size" min="0" max="5" step="0.1" value="1">
                 <button type="button" class="reset-btn" data-target="pixel_size">↺</button>
             </div>
         </div>

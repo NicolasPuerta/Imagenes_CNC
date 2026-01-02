@@ -187,7 +187,7 @@ def process_logic():
         "brightness": 0,
         "contrast": 1.0,
         "threshold": 128,
-        "pixel_size": 1,
+        "pixel_size": 1.0,
         "dither": False,
         "invert": False
     }
@@ -204,9 +204,12 @@ def process_logic():
         brightness = int(params.get("brightness", 0))
         contrast = float(params.get("contrast", 1.0))
         threshold = int(params.get("threshold", 128))
-        pixel_size = int(params.get("pixel_size", 1))
+        pixel_size = float(params.get("pixel_size", 1.0))
         dither = params.get("dither", False)
         invert = params.get("invert", False)
+
+        if pixel_size <= 0:
+            pixel_size = 0.1  # Evitar división por cero o valores negativos
 
         # Pipeline pesado (devuelve BGRA)
         img_bgra = procesar_pipeline_pesado(img_hash, img_bytes)
@@ -233,8 +236,10 @@ def process_logic():
 
             h, w = gray_adj.shape
 
-            if pixel_size > 1:
-                sw, sh = max(1, w // pixel_size), max(1, h // pixel_size)
+            # Siempre aplicar resizing si pixel_size != 1.0
+            if abs(pixel_size - 1.0) > 1e-6:
+                sw = max(1, int(w / pixel_size))
+                sh = max(1, int(h / pixel_size))
                 gray_small = cv2.resize(gray_adj, (sw, sh), interpolation=cv2.INTER_LANCZOS4)
                 dithered = jarvis_dither_fast(gray_small.astype(np.float32), 120)
                 gray_final = cv2.resize(dithered, (w, h), interpolation=cv2.INTER_LINEAR)
@@ -246,8 +251,6 @@ def process_logic():
             else:
                 dithered = jarvis_dither_fast(gray_adj.astype(np.float32), 120)
                 gray_final = dithered
-
-
 
             final_bgr = cv2.cvtColor(
                 gray_final.astype(np.uint8),
